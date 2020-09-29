@@ -90,7 +90,7 @@ func (c *Do) Execute(_ context.Context, f *flag.FlagSet, args ...interface{}) su
 	conf := args[0].(*config.Config)
 	waitStatus := args[1].(*unix.WaitStatus)
 
-	if conf.Rootless {
+	if conf.Rootless && !conf.Unprivileged {
 		if err := specutils.MaybeRunAsRoot(); err != nil {
 			return Errorf("Error executing inside namespace: %v", err)
 		}

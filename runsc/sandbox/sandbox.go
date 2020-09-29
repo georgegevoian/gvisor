@@ -475,7 +475,7 @@ func (s *Sandbox) createSandboxProcess(conf *config.Config, args *Args, startSyn
 		// when re-parented.
 		Setsid: true,
 	}
-
+        
 	// Set Args[0] to make easier to spot the sandbox process. Otherwise it's
 	// shown as `exe`.
 	cmd.Args[0] = "runsc-sandbox"
@@ -549,113 +549,118 @@ func (s *Sandbox) createSandboxProcess(conf *config.Config, args *Args, startSyn
 	// are virtualized inside the sandbox. Be paranoid and run inside an empty
 	// namespace for these. Don't unshare cgroup because sandbox is added to a
 	// cgroup in the caller's namespace.
-	log.Infof("Sandbox will be started in new mount, IPC and UTS namespaces")
-	nss := []specs.LinuxNamespace{
-		{Type: specs.IPCNamespace},
-		{Type: specs.MountNamespace},
-		{Type: specs.UTSNamespace},
-	}
 
-	if gPlatform.Requirements().RequiresCurrentPIDNS {
-		// TODO(b/75837838): Also set a new PID namespace so that we limit
-		// access to other host processes.
-		log.Infof("Sandbox will be started in the current PID namespace")
-	} else {
-		log.Infof("Sandbox will be started in a new PID namespace")
-		nss = append(nss, specs.LinuxNamespace{Type: specs.PIDNamespace})
-		cmd.Args = append(cmd.Args, "--pidns=true")
-	}
+        nss := []specs.LinuxNamespace{}
+        if !conf.Unprivileged {
 
-	// Joins the network namespace if network is enabled. the sandbox talks
-	// directly to the host network, which may have been configured in the
-	// namespace.
-	if ns, ok := specutils.GetNS(specs.NetworkNamespace, args.Spec); ok && conf.Network != config.NetworkNone {
-		log.Infof("Sandbox will be started in the container's network namespace: %+v", ns)
-		nss = append(nss, ns)
-	} else if conf.Network == config.NetworkHost {
-		log.Infof("Sandbox will be started in the host network namespace")
-	} else {
-		log.Infof("Sandbox will be started in new network namespace")
-		nss = append(nss, specs.LinuxNamespace{Type: specs.NetworkNamespace})
-	}
+                log.Infof("Sandbox will be started in new mount, IPC and UTS namespaces")
+                nss := []specs.LinuxNamespace{
+                        {Type: specs.IPCNamespace},
+                        {Type: specs.MountNamespace},
+                        {Type: specs.UTSNamespace},
+                }
 
-	// These are set to the uid/gid that the sandbox process will use. May be
-	// overriden below.
-	s.UID = os.Getuid()
-	s.GID = os.Getgid()
+                if gPlatform.Requirements().RequiresCurrentPIDNS {
+                        // TODO(b/75837838): Also set a new PID namespace so that we limit
+                        // access to other host processes.
+                        log.Infof("Sandbox will be started in the current PID namespace")
+                } else {
+                        log.Infof("Sandbox will be started in a new PID namespace")
+                        nss = append(nss, specs.LinuxNamespace{Type: specs.PIDNamespace})
+                        cmd.Args = append(cmd.Args, "--pidns=true")
+                }
 
-	// User namespace depends on the network type. Host network requires to run
-	// inside the user namespace specified in the spec or the current namespace
-	// if none is configured.
-	if conf.Network == config.NetworkHost {
-		if userns, ok := specutils.GetNS(specs.UserNamespace, args.Spec); ok {
-			log.Infof("Sandbox will be started in container's user namespace: %+v", userns)
-			nss = append(nss, userns)
-			specutils.SetUIDGIDMappings(cmd, args.Spec)
-		} else {
-			log.Infof("Sandbox will be started in the current user namespace")
-		}
-		// When running in the caller's defined user namespace, apply the same
-		// capabilities to the sandbox process to ensure it abides to the same
-		// rules.
-		cmd.Args = append(cmd.Args, "--apply-caps=true")
+                // Joins the network namespace if network is enabled. the sandbox talks
+                // directly to the host network, which may have been configured in the
+                // namespace.
+                if ns, ok := specutils.GetNS(specs.NetworkNamespace, args.Spec); ok && conf.Network != config.NetworkNone {
+                        log.Infof("Sandbox will be started in the container's network namespace: %+v", ns)
+                        nss = append(nss, ns)
+                } else if conf.Network == config.NetworkHost {
+                        log.Infof("Sandbox will be started in the host network namespace")
+                } else {
+                        log.Infof("Sandbox will be started in new network namespace")
+                        nss = append(nss, specs.LinuxNamespace{Type: specs.NetworkNamespace})
+                }
 
-		// If we have CAP_SYS_ADMIN, we can create an empty chroot and
-		// bind-mount the executable inside it.
-		if conf.TestOnlyAllowRunAsCurrentUserWithoutChroot {
-			log.Warningf("Running sandbox in test mode without chroot. This is only safe in tests!")
+                // These are set to the uid/gid that the sandbox process will use. May be
+                // overriden below.
+                s.UID = os.Getuid()
+                s.GID = os.Getgid()
 
-		} else if specutils.HasCapabilities(capability.CAP_SYS_ADMIN) {
-			log.Infof("Sandbox will be started in minimal chroot")
-			cmd.Args = append(cmd.Args, "--setup-root")
-		} else {
-			return fmt.Errorf("can't run sandbox process in minimal chroot since we don't have CAP_SYS_ADMIN")
-		}
-	} else {
-		// If we have CAP_SETUID and CAP_SETGID, then we can also run
-		// as user nobody.
-		if conf.TestOnlyAllowRunAsCurrentUserWithoutChroot {
-			log.Warningf("Running sandbox in test mode as current user (uid=%d gid=%d). This is only safe in tests!", os.Getuid(), os.Getgid())
-			log.Warningf("Running sandbox in test mode without chroot. This is only safe in tests!")
-		} else if specutils.HasCapabilities(capability.CAP_SETUID, capability.CAP_SETGID) {
-			log.Infof("Sandbox will be started in new user namespace")
-			nss = append(nss, specs.LinuxNamespace{Type: specs.UserNamespace})
-			cmd.Args = append(cmd.Args, "--setup-root")
+                // User namespace depends on the network type. Host network requires to run
+                // inside the user namespace specified in the spec or the current namespace
+                // if none is configured.
+                if conf.Network == config.NetworkHost {
+                        if userns, ok := specutils.GetNS(specs.UserNamespace, args.Spec); ok {
+                                log.Infof("Sandbox will be started in container's user namespace: %+v", userns)
+                                nss = append(nss, userns)
+                                specutils.SetUIDGIDMappings(cmd, args.Spec)
+                        } else {
+                                log.Infof("Sandbox will be started in the current user namespace")
+                        }
+                        // When running in the caller's defined user namespace, apply the same
+                        // capabilities to the sandbox process to ensure it abides to the same
+                        // rules.
+                        cmd.Args = append(cmd.Args, "--apply-caps=true")
 
-			const nobody = 65534
-			if conf.Rootless {
-				log.Infof("Rootless mode: sandbox will run as nobody inside user namespace, mapped to the current user, uid: %d, gid: %d", os.Getuid(), os.Getgid())
-			} else {
-				// Map nobody in the new namespace to nobody in the parent namespace.
-				s.UID = nobody
-				s.GID = nobody
-			}
+                        // If we have CAP_SYS_ADMIN, we can create an empty chroot and
+                        // bind-mount the executable inside it.
+                        if conf.TestOnlyAllowRunAsCurrentUserWithoutChroot {
+                                log.Warningf("Running sandbox in test mode without chroot. This is only safe in tests!")
 
-			// Set credentials to run as user and group nobody.
-			cmd.SysProcAttr.Credential = &syscall.Credential{Uid: nobody, Gid: nobody}
-			cmd.SysProcAttr.UidMappings = []syscall.SysProcIDMap{
-				{
-					ContainerID: nobody,
-					HostID:      s.UID,
-					Size:        1,
-				},
-			}
-			cmd.SysProcAttr.GidMappings = []syscall.SysProcIDMap{
-				{
-					ContainerID: nobody,
-					HostID:      s.GID,
-					Size:        1,
-				},
-			}
+                        } else if specutils.HasCapabilities(capability.CAP_SYS_ADMIN) {
+                                log.Infof("Sandbox will be started in minimal chroot")
+                                cmd.Args = append(cmd.Args, "--setup-root")
+                        } else {
+                                return fmt.Errorf("can't run sandbox process in minimal chroot since we don't have CAP_SYS_ADMIN")
+                        }
+                } else {
+                        // If we have CAP_SETUID and CAP_SETGID, then we can also run
+                        // as user nobody.
+                        if conf.TestOnlyAllowRunAsCurrentUserWithoutChroot {
+                                log.Warningf("Running sandbox in test mode as current user (uid=%d gid=%d). This is only safe in tests!", os.Getuid(), os.Getgid())
+                                log.Warningf("Running sandbox in test mode without chroot. This is only safe in tests!")
+                        } else if specutils.HasCapabilities(capability.CAP_SETUID, capability.CAP_SETGID) {
+                                log.Infof("Sandbox will be started in new user namespace")
+                                nss = append(nss, specs.LinuxNamespace{Type: specs.UserNamespace})
+                                cmd.Args = append(cmd.Args, "--setup-root")
 
-			// A sandbox process will construct an empty root for itself, so it has
-			// to have CAP_SYS_ADMIN and CAP_SYS_CHROOT capabilities.
-			cmd.SysProcAttr.AmbientCaps = append(cmd.SysProcAttr.AmbientCaps, uintptr(capability.CAP_SYS_ADMIN), uintptr(capability.CAP_SYS_CHROOT))
+                                const nobody = 65534
+                                if conf.Rootless {
+                                        log.Infof("Rootless mode: sandbox will run as nobody inside user namespace, mapped to the current user, uid: %d, gid: %d", os.Getuid(), os.Getgid())
+                                } else {
+                                        // Map nobody in the new namespace to nobody in the parent namespace.
+                                        s.UID = nobody
+                                        s.GID = nobody
+                                }
 
-		} else {
-			return fmt.Errorf("can't run sandbox process as user nobody since we don't have CAP_SETUID or CAP_SETGID")
-		}
-	}
+                                // Set credentials to run as user and group nobody.
+                                cmd.SysProcAttr.Credential = &syscall.Credential{Uid: nobody, Gid: nobody}
+                                cmd.SysProcAttr.UidMappings = []syscall.SysProcIDMap{
+                                        {
+                                                ContainerID: nobody,
+                                                HostID:      s.UID,
+                                                Size:        1,
+                                        },
+                                }
+                                cmd.SysProcAttr.GidMappings = []syscall.SysProcIDMap{
+                                        {
+                                                ContainerID: nobody,
+                                                HostID:      s.GID,
+                                                Size:        1,
+                                        },
+                                }
+
+                                // A sandbox process will construct an empty root for itself, so it has
+                                // to have CAP_SYS_ADMIN and CAP_SYS_CHROOT capabilities.
+                                cmd.SysProcAttr.AmbientCaps = append(cmd.SysProcAttr.AmbientCaps, uintptr(capability.CAP_SYS_ADMIN), uintptr(capability.CAP_SYS_CHROOT))
+
+                        } else {
+                                return fmt.Errorf("can't run sandbox process as user nobody since we don't have CAP_SETUID or CAP_SETGID")
+                        }
+                }
+        }
 
 	// The current process' stdio must be passed to the application via the
 	// --stdio-fds flag. The stdio of the sandbox process itself must not
