@@ -155,13 +155,15 @@ func (g *Gofer) Execute(_ context.Context, f *flag.FlagSet, args ...interface{})
 		Fatalf("failed to open /proc/self/fd: %v", err)
 	}
 
-	if err := unix.Chroot(root); err != nil {
-		Fatalf("failed to chroot to %q: %v", root, err)
-	}
-	if err := unix.Chdir("/"); err != nil {
-		Fatalf("changing working dir: %v", err)
-	}
-	log.Infof("Process chroot'd to %q", root)
+        if root != "/" {
+                if err := unix.Chroot(root); err != nil {
+                        Fatalf("failed to chroot to %q: %v", root, err)
+                }
+                if err := unix.Chdir("/"); err != nil {
+                        Fatalf("changing working dir: %v", err)
+                }
+                log.Infof("Process chroot'd to %q", root)
+        }
 
 	// Initialize filters.
 	if conf.FSGoferHostUDS {

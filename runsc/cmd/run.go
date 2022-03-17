@@ -72,9 +72,11 @@ func (r *Run) Execute(_ context.Context, f *flag.FlagSet, args ...interface{}) s
 			return Errorf("sandbox network isn't supported with --rootless, use --network=none or --network=host")
 		}
 
-		if err := specutils.MaybeRunAsRoot(); err != nil {
-			return Errorf("Error executing inside namespace: %v", err)
-		}
+                if !conf.Unprivileged {
+                        if err := specutils.MaybeRunAsRoot(); err != nil {
+                                return Errorf("Error executing inside namespace: %v", err)
+                        }
+                }
 		// Execution will continue here if no more capabilities are needed...
 	}
 

@@ -1308,7 +1308,7 @@ func (s *Sandbox) waitForStopped() error {
 // configureStdios change stdios ownership to give access to the sandbox
 // process. This may be skipped depending on the configuration.
 func (s *Sandbox) configureStdios(conf *config.Config, stdios []*os.File) error {
-	if conf.Rootless || conf.TestOnlyAllowRunAsCurrentUserWithoutChroot {
+	if conf.Unprivileged || conf.Rootless || conf.TestOnlyAllowRunAsCurrentUserWithoutChroot {
 		// Cannot change ownership without CAP_CHOWN.
 		return nil
 	}
